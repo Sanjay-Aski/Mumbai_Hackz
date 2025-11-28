@@ -108,17 +108,10 @@ async def ingest_transaction(txn: TransactionInput, background_tasks: Background
 async def check_intervention(req: InterventionRequest):
     """
     Called by Chrome Extension to check if we should intervene.
-    Uses RAG to make a decision based on recent context.
+    Uses real user data and smart intervention logic.
     """
-    # Check context (Shopping site?)
-    shopping_sites = ["amazon", "myntra", "flipkart", "upwork"]
-    is_shopping_or_gig = any(s in (req.context_url or "").lower() for s in shopping_sites)
-    
-    if not is_shopping_or_gig:
-        return InterventionResponse(should_intervene=False)
-
-    # Use RAG Service to decide
-    decision = await rag_service.generate_intervention(req.user_id, req.context_url)
+    # Use enhanced user data service for intervention decision
+    decision = user_data_service.should_intervene(req.user_id, req.context_url or "")
     
     return InterventionResponse(
         should_intervene=decision.get("should_intervene", False),
@@ -130,48 +123,10 @@ async def check_intervention(req: InterventionRequest):
 @router.get("/dashboard/{user_id}", response_model=DashboardStats)
 async def get_dashboard_stats(user_id: str):
     """
-    Aggregate data for the frontend dashboard.
+    Aggregate data for the frontend dashboard using real user data.
     """
-    # 1. Get recent stress (simulated by querying vector DB for last biometric)
-    recent_stress = await vector_service.query_similar_events(
-        user_id=user_id,
-        query_text="biometric stress",
-        top_k=1,
-        filter_type="biometric"
-    )
-    
-    stress_score = 0.2
-    stress_level = "Low"
-    if recent_stress:
-        stress_score = float(recent_stress[0]['metadata'].get('score', 0.2))
-        if stress_score > 0.7:
-            stress_level = "High"
-        elif stress_score > 0.4:
-            stress_level = "Medium"
-
-    # 2. Get recent interventions (simulated)
-    # In a real app, we would query an 'Intervention' table or vector type
-    interventions = [
-        {
-            "time": "2 hours ago",
-            "action": "Blocked 'Buy Now' on Myntra",
-            "reason": f"High Stress detected (Score: {stress_score:.2f})"
-        },
-        {
-            "time": "Yesterday",
-            "action": "Nudge on Upwork Proposal",
-            "reason": "Underpricing risk detected"
-        }
-    ]
-
-    return DashboardStats(
-        stress_level=stress_level,
-        stress_score=stress_score,
-        spending_risk="Critical" if stress_level == "High" else "Safe",
-        cognitive_load="Normal",
-        savings_runway="3.5 Mo",
-        recent_interventions=interventions
-    )
+    # Use the enhanced user data service
+    return user_data_service.get_dashboard_stats(user_id)
 
 @router.post("/therapy/chat", response_model=TherapyResponse)
 async def therapy_chat(msg: TherapyMessage):
@@ -272,6 +227,40 @@ async def get_interventions(user_id: str, limit: int = 10):
         total_count=len(interventions),
         date=str(uuid.uuid4().hex[:8])  # Just a placeholder
     )
+
+@router.post("/user/permissions")
+async def update_user_permissions(user_id: str, permissions: dict):
+    """
+    Update user's data collection permissions.
+    """
+    # In a real system, this would update the database
+    user_data_service.log_intervention_result(user_id, {
+        "type": "permissions_update",
+        "permissions": permissions,
+        "timestamp": str(uuid.uuid4())
+    })
+    
+    return {
+        "status": "permissions_updated",
+        "user_id": user_id,
+        "permissions": permissions
+    }
+
+@router.get("/user/permissions/{user_id}")
+async def get_user_permissions(user_id: str):
+    """
+    Get user's current data collection permissions and consent status.
+    """
+    return {
+        "user_id": user_id,
+        "permissions": user_data_service.permissions_data,
+        "consent_given": True,  # In real system, check user-specific consent
+        "data_types_collected": [
+            "biometric_data",
+            "browsing_behavior", 
+            "intervention_analytics"
+        ]
+    }
 
 @router.get("/health")
 async def health_check():

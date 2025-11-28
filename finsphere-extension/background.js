@@ -43,12 +43,17 @@ async function initializeExtension() {
   console.log('FinSphere initialized with userId:', extensionState.userId);
 }
 
-// Tab update listener - check for interventions
+// Tab update listener - check for interventions with throttling
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && extensionState.isActive) {
-    setTimeout(() => {
-      checkForPurchaseOpportunity(tab);
-    }, 1000);
+    const now = Date.now();
+    // Throttle: only check once per 2 minutes per tab
+    if (now - extensionState.lastCheckTime > 120000) {
+      extensionState.lastCheckTime = now;
+      setTimeout(() => {
+        checkForPurchaseOpportunity(tab);
+      }, 2000); // Increased delay to 2 seconds
+    }
   }
 });
 
@@ -65,16 +70,21 @@ async function checkForPurchaseOpportunity(tab) {
     }
 
     // Send message to content script to analyze the page
-    chrome.tabs.sendMessage(tabId, {
+    chrome.tabs.sendMessage(tab.id, {
       action: 'analyzePageContent',
       type: isShoppingPage ? 'shopping' : 'gig'
-    }, (response) => {
-      if (response && response.hasContent) {
-        evaluateIntervention(tab, response, isShoppingPage);
+    }, async (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('Content script not available:', chrome.runtime.lastError);
+        return;
       }
-    }).catch(() => {
-      // Content script not ready yet
+      
+      if (response && (response.isImpulseBuy || response.isProposal)) {
+        // Evaluate if intervention is needed
+        await evaluateIntervention(tab, response, isShoppingPage);
+      }
     });
+
   } catch (error) {
     console.error('Error in checkForPurchaseOpportunity:', error);
   }
@@ -92,26 +102,33 @@ async function evaluateIntervention(tab, pageData, isShoppingPage) {
     let shouldIntervene = false;
     let interventionReason = '';
     let interventionSeverity = 'low';
+    let delayMinutes = 5;
 
-    if (isShoppingPage) {
+    if (isShoppingPage && pageData.isImpulseBuy) {
       // Shopping site intervention logic
-      if (userState.stress_level === 'High') {
+      if (userState.stress_level === 'High' || userState.stress_level === 'Medium') {
         shouldIntervene = true;
-        interventionReason = 'High stress detected - impulse buying risk';
-        interventionSeverity = 'high';
-      } else if (userState.stress_level === 'Medium') {
-        if (pageData.isImpulseBuy) {
-          shouldIntervene = true;
-          interventionReason = 'Potential impulse purchase detected';
-          interventionSeverity = 'medium';
-        }
+        interventionReason = 'Impulse purchase detected during elevated stress';
+        interventionSeverity = userState.stress_level === 'High' ? 'high' : 'medium';
+        delayMinutes = userState.stress_level === 'High' ? 10 : 5;
+      } else {
+        shouldIntervene = true;
+        interventionReason = 'Potential impulse purchase detected';
+        interventionSeverity = 'low';
+        delayMinutes = 3;
       }
-    } else {
+    } else if (!isShoppingPage && pageData.isProposal) {
       // Gig work underpricing logic
-      if (userState.stress_level === 'High' && pageData.isProposal) {
+      if (userState.stress_level === 'High') {
         shouldIntervene = true;
         interventionReason = 'High stress - risk of underpricing your work';
         interventionSeverity = 'high';
+        delayMinutes = 10;
+      } else if (userState.stress_level === 'Medium') {
+        shouldIntervene = true;
+        interventionReason = 'Review proposal pricing carefully';
+        interventionSeverity = 'medium';
+        delayMinutes = 5;
       }
     }
 
@@ -123,16 +140,43 @@ async function evaluateIntervention(tab, pageData, isShoppingPage) {
           reason: interventionReason,
           severity: interventionSeverity,
           userState: userState,
+          delay_minutes: delayMinutes,
           pageType: isShoppingPage ? 'shopping' : 'gig',
           timestamp: new Date().toISOString()
         }
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('Failed to show intervention:', chrome.runtime.lastError);
+        } else {
+          // Log intervention
+          logIntervention(tab.url, interventionReason, interventionSeverity);
+        }
       });
-
-      // Log intervention
-      logIntervention(tab.url, interventionReason, interventionSeverity);
     }
   } catch (error) {
     console.error('Error evaluating intervention:', error);
+  }
+}
+
+/**
+ * Send message to content script for intervention logging
+ */
+async function logInterventionResponse(action, accepted) {
+  try {
+    await fetch(`${API_URL}/intervention/response`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: extensionState.userId,
+        action: action,
+        accepted: accepted,
+        timestamp: new Date().toISOString()
+      })
+    }).catch(() => {
+      console.warn('Could not log intervention response');
+    });
+  } catch (error) {
+    console.error('Error logging intervention response:', error);
   }
 }
 
@@ -225,6 +269,12 @@ async function handleMessage(request, sender, sendResponse) {
         sendResponse(intervention);
         break;
 
+      case 'recordIntervention':
+        // Record intervention response
+        await recordInterventionResponse(request.data);
+        sendResponse({ success: true });
+        break;
+
       case 'recordPurchase':
         await recordTransaction(request.data);
         sendResponse({ success: true });
@@ -270,14 +320,42 @@ async function recordTransaction(data) {
   }
 }
 
-// Periodic check for pending interventions
+/**
+ * Record intervention response
+ */
+async function recordInterventionResponse(data) {
+  try {
+    await fetch(`${API_URL}/intervention/response`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: extensionState.userId,
+        url: data.url,
+        intervention_action: data.intervention_action || 'unknown',
+        accepted: data.accepted || false,
+        timestamp: data.timestamp || new Date().toISOString()
+      })
+    }).catch((err) => {
+      console.warn('API not available for intervention response:', err);
+    });
+  } catch (error) {
+    console.error('Error recording intervention response:', error);
+  }
+}
+
+// Periodic check for pending interventions - REDUCED FREQUENCY
 setInterval(() => {
   if (extensionState.isActive) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
-        checkForPurchaseOpportunity(tabs[0]);
+        // Only check if user hasn't been checked recently
+        const now = Date.now();
+        if (now - extensionState.lastCheckTime > 120000) { // 2 minutes minimum
+          extensionState.lastCheckTime = now;
+          checkForPurchaseOpportunity(tabs[0]);
+        }
       }
     });
   }
-}, 30000); // Check every 30 seconds
+}, 60000); // Check every 60 seconds instead of 30
 
