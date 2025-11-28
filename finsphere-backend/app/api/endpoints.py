@@ -4,12 +4,15 @@ from app.models.schemas import (
     MessageInput, SentimentResult,
     TransactionInput,
     InterventionRequest, InterventionResponse,
+    InterventionLog, InterventionListResponse,
     DashboardStats,
     TherapyMessage, TherapyResponse
 )
 from app.services.vector_db import vector_service
 from app.services.analyzer import analyzer
 from app.services.rag_service import rag_service
+from app.services.user_data_service import user_data_service
+from app.core.config import settings
 from typing import List
 import uuid
 
@@ -178,3 +181,153 @@ async def therapy_chat(msg: TherapyMessage):
     """
     response_text = await rag_service.generate_therapy_response(msg.user_id, msg.message)
     return TherapyResponse(response_text=response_text)
+
+@router.post("/intervention/log")
+async def log_intervention(intervention: InterventionLog, background_tasks: BackgroundTasks):
+    """
+    Log intervention events for analytics and pattern tracking.
+    Called by the Chrome Extension after performing an intervention.
+    """
+    event_id = str(uuid.uuid4())
+    desc = f"Intervention: {intervention.reason} on {intervention.url}"
+    
+    # Store in Vector DB for future pattern analysis
+    background_tasks.add_task(
+        vector_service.upsert_event,
+        event_id=event_id,
+        text_description=desc,
+        metadata={
+            "user_id": intervention.user_id,
+            "type": "intervention",
+            "timestamp": intervention.timestamp.isoformat(),
+            "url": intervention.url,
+            "reason": intervention.reason,
+            "severity": intervention.severity
+        }
+    )
+    
+    return {
+        "status": "logged",
+        "id": event_id,
+        "timestamp": intervention.timestamp
+    }
+
+@router.post("/intervention/response")
+async def log_intervention_response(data: dict, background_tasks: BackgroundTasks):
+    """
+    Log user's response to an intervention (accepted/snooze/proceed).
+    Called by the Chrome Extension when user interacts with the intervention overlay.
+    """
+    event_id = str(uuid.uuid4())
+    action = data.get('intervention_action', 'unknown')
+    accepted = data.get('accepted', False)
+    
+    desc = f"User {action} intervention: {'Accepted' if accepted else 'Declined'} on {data.get('url', 'unknown')}"
+    
+    background_tasks.add_task(
+        vector_service.upsert_event,
+        event_id=event_id,
+        text_description=desc,
+        metadata={
+            "user_id": data.get('user_id'),
+            "type": "intervention_response",
+            "timestamp": data.get('timestamp'),
+            "action": action,
+            "accepted": accepted,
+            "url": data.get('url')
+        }
+    )
+    
+    return {
+        "status": "response_logged",
+        "id": event_id,
+        "action": action,
+        "accepted": accepted
+    }
+
+@router.get("/interventions/{user_id}", response_model=InterventionListResponse)
+async def get_interventions(user_id: str, limit: int = 10):
+    """
+    Get recent interventions for a user (for dashboard display).
+    """
+    recent = await vector_service.query_similar_events(
+        user_id=user_id,
+        query_text="intervention action",
+        top_k=limit,
+        filter_type="intervention"
+    )
+    
+    interventions = []
+    for event in recent:
+        interventions.append({
+            "id": event["id"],
+            "timestamp": event["metadata"].get("timestamp"),
+            "url": event["metadata"].get("url"),
+            "reason": event["metadata"].get("reason"),
+            "severity": event["metadata"].get("severity")
+        })
+    
+    return InterventionListResponse(
+        interventions=interventions,
+        total_count=len(interventions),
+        date=str(uuid.uuid4().hex[:8])  # Just a placeholder
+    )
+
+@router.get("/health")
+async def health_check():
+    """
+    Health check endpoint for monitoring.
+    """
+    from app.services.ollama_service import ollama_service
+    
+    # Check Ollama availability
+    ollama_status = "available" if ollama_service.is_available() else "unavailable"
+    
+    # Check Qdrant availability
+    qdrant_info = vector_service.get_collection_info()
+    
+    return {
+        "status": "healthy",
+        "service": "FinSphere API",
+        "version": "0.1.0",
+        "services": {
+            "ollama": {
+                "status": ollama_status,
+                "model": settings.OLLAMA_MODEL,
+                "embeddings_model": settings.OLLAMA_EMBEDDINGS_MODEL
+            },
+            "qdrant": qdrant_info
+        }
+    }
+
+@router.get("/status")
+async def system_status():
+    """
+    Detailed system status endpoint.
+    """
+    from app.services.ollama_service import ollama_service
+    
+    ollama_model_info = ollama_service.get_model_info()
+    qdrant_info = vector_service.get_collection_info()
+    
+    return {
+        "system": "FinSphere - Offline AI Financial Wellness",
+        "components": {
+            "ollama": {
+                "available": ollama_service.is_available(),
+                "endpoint": settings.OLLAMA_BASE_URL,
+                "chat_model": settings.OLLAMA_MODEL,
+                "embedding_model": settings.OLLAMA_EMBEDDINGS_MODEL,
+                "model_info": ollama_model_info
+            },
+            "qdrant": {
+                "host": f"{settings.QDRANT_HOST}:{settings.QDRANT_PORT}",
+                "collection": settings.QDRANT_COLLECTION_NAME,
+                "info": qdrant_info
+            },
+            "analyzer": {
+                "sentiment": "TextBlob",
+                "stress_algorithm": "HR/HRV heuristic"
+            }
+        }
+    }

@@ -69,3 +69,16 @@ class TherapyMessage(BaseModel):
 class TherapyResponse(BaseModel):
     response_text: str
     audio_url: Optional[str] = None # For future TTS integration
+
+# --- Intervention Logging ---
+class InterventionLog(BaseModel):
+    user_id: str
+    url: str
+    reason: str
+    severity: str  # low, medium, high
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class InterventionListResponse(BaseModel):
+    interventions: List[Dict[str, Any]]
+    total_count: int
+    date: str

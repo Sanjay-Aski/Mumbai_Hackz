@@ -1,73 +1,109 @@
 import os
 from typing import List, Dict, Any, Optional
-from pinecone import Pinecone
-from openai import OpenAI
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+import ollama
 from app.core.config import settings
 import json
+import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 class VectorService:
     def __init__(self):
-        # Initialize Pinecone
-        if settings.PINECONE_API_KEY and settings.PINECONE_API_KEY != "your_pinecone_api_key_here":
-            try:
-                self.pc = Pinecone(api_key=settings.PINECONE_API_KEY)
-                self.index = self.pc.Index(settings.PINECONE_INDEX_NAME)
-                print("Pinecone initialized successfully.")
-            except Exception as e:
-                print(f"Pinecone initialization failed: {e}. Vector DB disabled.")
-                self.pc = None
-                self.index = None
-        else:
-            self.pc = None
-            self.index = None
-            print("WARNING: Pinecone API Key not set. Vector DB disabled.")
+        # Initialize Qdrant (Local/Offline)
+        try:
+            self.client = QdrantClient(
+                host=settings.QDRANT_HOST,
+                port=settings.QDRANT_PORT
+            )
+            self.collection_name = settings.QDRANT_COLLECTION_NAME
+            self._ensure_collection_exists()
+            print(f"Qdrant initialized successfully on {settings.QDRANT_HOST}:{settings.QDRANT_PORT}")
+        except Exception as e:
+            print(f"Qdrant initialization failed: {e}. Vector DB disabled.")
+            logger.error(f"Qdrant error: {e}")
+            self.client = None
 
-        # Initialize OpenAI for embeddings
-        if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != "your_openai_api_key_here":
-            try:
-                self.openai = OpenAI(api_key=settings.OPENAI_API_KEY)
-                print("OpenAI initialized successfully.")
-            except Exception as e:
-                print(f"OpenAI initialization failed: {e}. Embeddings disabled.")
-                self.openai = None
-        else:
-            self.openai = None
-            print("WARNING: OpenAI API Key not set. Embeddings disabled.")
+        # Initialize Ollama for embeddings (Local/Offline)
+        try:
+            # Test connection to Ollama
+            ollama.list()
+            print(f"Ollama initialized successfully at {settings.OLLAMA_BASE_URL}")
+        except Exception as e:
+            print(f"Ollama initialization failed: {e}. Embeddings will use mock data.")
+            logger.error(f"Ollama error: {e}")
+
+    def _ensure_collection_exists(self):
+        """Create collection if it doesn't exist."""
+        if not self.client:
+            return
+            
+        try:
+            collections = self.client.get_collections()
+            collection_names = [col.name for col in collections.collections]
+            
+            if self.collection_name not in collection_names:
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=768,  # Dimension for nomic-embed-text
+                        distance=Distance.COSINE
+                    )
+                )
+                print(f"Created collection: {self.collection_name}")
+                logger.info(f"Created Qdrant collection: {self.collection_name}")
+        except Exception as e:
+            print(f"Error ensuring collection exists: {e}")
+            logger.error(f"Collection creation error: {e}")
 
     def get_embedding(self, text: str) -> List[float]:
-        """Generate embedding for text using OpenAI."""
-        if not self.openai:
-            return [0.0] * 1536 # Mock embedding
-        
-        response = self.openai.embeddings.create(
-            input=text,
-            model="text-embedding-3-small"
-        )
-        return response.data[0].embedding
+        """Generate embedding for text using Ollama."""
+        try:
+            response = ollama.embeddings(
+                model=settings.OLLAMA_EMBEDDINGS_MODEL,
+                prompt=text
+            )
+            return response['embedding']
+        except Exception as e:
+            print(f"Embedding error: {e}")
+            logger.error(f"Embedding error: {e}")
+            # Return mock embedding of correct size for nomic-embed-text
+            return [0.1] * 768
 
     async def upsert_event(self, 
                            event_id: str, 
                            text_description: str, 
                            metadata: Dict[str, Any]):
         """
-        Upsert an event (biometric, message, transaction) into Pinecone.
+        Upsert an event (biometric, message, transaction) into Qdrant.
         Schema:
         - ID: event_id
         - Vector: embedding(text_description)
         - Metadata: user_id, type, timestamp, score, raw_text
         """
-        if not self.index:
+        if not self.client:
+            logger.warning("Qdrant client not available, skipping upsert")
             return
         
-        vector = self.get_embedding(text_description)
-        
-        # Ensure metadata values are primitives (Pinecone requirement)
-        clean_metadata = {
-            k: str(v) if isinstance(v, (dict, list)) else v 
-            for k, v in metadata.items()
-        }
-        
-        self.index.upsert(vectors=[(event_id, vector, clean_metadata)])
+        try:
+            vector = self.get_embedding(text_description)
+            
+            # Create point for Qdrant
+            point = PointStruct(
+                id=event_id,
+                vector=vector,
+                payload=metadata
+            )
+            
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=[point]
+            )
+            logger.debug(f"Upserted event {event_id} to Qdrant")
+        except Exception as e:
+            logger.error(f"Error upserting event: {e}")
 
     async def query_similar_events(self, 
                                    user_id: str, 
@@ -77,30 +113,67 @@ class VectorService:
         """
         Retrieve similar past events for a user to find patterns.
         """
-        if not self.index:
+        if not self.client:
+            logger.warning("Qdrant client not available, returning empty results")
             return []
 
-        vector = self.get_embedding(query_text)
-        
-        filter_dict = {"user_id": user_id}
-        if filter_type:
-            filter_dict["type"] = filter_type
+        try:
+            vector = self.get_embedding(query_text)
+            
+            # Build filter for Qdrant
+            must_conditions = [
+                FieldCondition(key="user_id", match=MatchValue(value=user_id))
+            ]
+            
+            if filter_type:
+                must_conditions.append(
+                    FieldCondition(key="type", match=MatchValue(value=filter_type))
+                )
 
-        results = self.index.query(
-            vector=vector,
-            top_k=top_k,
-            include_metadata=True,
-            filter=filter_dict
-        )
-        
-        return [
-            {
-                "id": match.id,
-                "score": match.score,
-                "metadata": match.metadata
+            search_filter = Filter(must=must_conditions) if must_conditions else None
+
+            results = self.client.search(
+                collection_name=self.collection_name,
+                query_vector=vector,
+                limit=top_k,
+                query_filter=search_filter,
+                with_payload=True
+            )
+            
+            events = [
+                {
+                    "id": str(result.id),
+                    "score": result.score,
+                    "metadata": result.payload or {}
+                }
+                for result in results
+            ]
+            logger.debug(f"Retrieved {len(events)} similar events for {user_id}")
+            return events
+        except Exception as e:
+            logger.error(f"Error querying similar events: {e}")
+            return []
+
+    def get_collection_info(self) -> Dict[str, Any]:
+        """Get information about the collection."""
+        if not self.client:
+            return {"status": "disabled", "message": "Qdrant client not available"}
+            
+        try:
+            info = self.client.get_collection(self.collection_name)
+            return {
+                "status": "active",
+                "collection_name": self.collection_name,
+                "vectors_count": info.vectors_count,
+                "points_count": info.points_count,
+                "config": {
+                    "vector_size": info.config.params.vectors.size,
+                    "distance": info.config.params.vectors.distance.name
+                }
             }
-            for match in results.matches
-        ]
+        except Exception as e:
+            logger.error(f"Error getting collection info: {e}")
+            return {"status": "error", "message": str(e)}
 
 # Singleton instance
 vector_service = VectorService()
