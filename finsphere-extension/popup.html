@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { width: 300px; padding: 15px; font-family: sans-serif; }
+    .status { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+    .dot { width: 10px; height: 10px; background: #22c55e; border-radius: 50%; }
+    .dot.active { background: #22c55e; }
+    .dot.inactive { background: #ef4444; }
+    h3 { margin: 0 0 5px 0; color: #1e293b; }
+    p { margin: 0; color: #64748b; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="status">
+    <div class="dot active"></div>
+    <div>
+      <h3>FinSphere Active</h3>
+      <p>Monitoring for financial stress.</p>
+    </div>
+  </div>
+  <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 10px 0;">
+  <p>Current State: <strong>Calm</strong></p>
+</body>
+</html>

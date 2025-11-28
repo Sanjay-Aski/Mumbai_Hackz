@@ -1,0 +1,81 @@
+/* styles.css */
+.finsphere-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.95);
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: #333;
+  backdrop-filter: blur(5px);
+}
+
+.finsphere-card {
+  background: white;
+  padding: 40px;
+  border-radius: 20px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  text-align: center;
+  max-width: 500px;
+  border: 1px solid #e2e8f0;
+}
+
+.finsphere-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 16px;
+}
+
+.finsphere-message {
+  font-size: 16px;
+  color: #64748b;
+  margin-bottom: 32px;
+  line-height: 1.5;
+}
+
+.finsphere-timer {
+  font-size: 48px;
+  font-weight: 800;
+  color: #3b82f6;
+  margin-bottom: 24px;
+}
+
+.finsphere-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.finsphere-btn {
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.finsphere-btn-primary {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.finsphere-btn-primary:hover {
+  background-color: #2563eb;
+}
+
+.finsphere-btn-secondary {
+  background-color: #f1f5f9;
+  color: #64748b;
+}
+
+.finsphere-btn-secondary:hover {
+  background-color: #e2e8f0;
+}
