@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     OLLAMA_HOST: str = "localhost"
     OLLAMA_PORT: int = 11434
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "gpt-oss:20b"  # Using GPT-OSS 20B model
+    OLLAMA_MODEL: str = "gpt-oss:20b-cloud"  # Using GPT-OSS 20B model
     OLLAMA_EMBEDDINGS_MODEL: str = "nomic-embed-text"  # For embeddings
 
     class Config:

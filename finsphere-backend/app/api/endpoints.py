@@ -11,8 +11,12 @@ from app.models.schemas import (
 from app.services.vector_db import vector_service
 from app.services.analyzer import analyzer
 from app.services.rag_service import rag_service
-from app.services.user_data_service import user_data_service
+from app.services.postgresql_user_service import postgresql_user_service
+from app.services.auth_service import get_current_user
+from app.core.database import get_db
 from app.core.config import settings
+from app.models.database import User
+from sqlalchemy.orm import Session
 from typing import List
 import uuid
 
@@ -20,11 +24,21 @@ router = APIRouter()
 
 
 @router.post("/ingest/biometrics", response_model=StressAssessment)
-async def ingest_biometrics(data: BiometricData, background_tasks: BackgroundTasks):
+async def ingest_biometrics(
+    data: BiometricData, 
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Ingest wearable data and return immediate stress assessment.
     """
     is_stressed, score = analyzer.assess_stress(data.heart_rate, data.hrv_ms)
+    
+    # Store in PostgreSQL
+    reading = postgresql_user_service.add_biometric_reading(
+        db, current_user.id, data.heart_rate, data.hrv_ms, "API ingestion"
+    )
     
     # Async: Store in Vector DB for long-term pattern matching
     event_id = str(uuid.uuid4())
@@ -35,7 +49,7 @@ async def ingest_biometrics(data: BiometricData, background_tasks: BackgroundTas
         event_id=event_id,
         text_description=desc,
         metadata={
-            "user_id": data.user_id,
+            "user_id": current_user.email,
             "type": "biometric",
             "timestamp": data.timestamp.isoformat(),
             "score": score,
@@ -44,7 +58,7 @@ async def ingest_biometrics(data: BiometricData, background_tasks: BackgroundTas
     )
         
     return StressAssessment(
-        user_id=data.user_id,
+        user_id=current_user.email,
         timestamp=data.timestamp,
         is_stressed=is_stressed,
         stress_score=score,
@@ -82,10 +96,20 @@ async def ingest_message(msg: MessageInput, background_tasks: BackgroundTasks):
     return SentimentResult(score=score, label=label, risk_flag=risk_flag)
 
 @router.post("/ingest/transaction")
-async def ingest_transaction(txn: TransactionInput, background_tasks: BackgroundTasks):
+async def ingest_transaction(
+    txn: TransactionInput, 
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Ingest financial transaction for pattern matching.
     """
+    # Store in PostgreSQL
+    transaction = postgresql_user_service.add_transaction(
+        db, current_user.id, txn.amount, txn.merchant, txn.category
+    )
+    
     event_id = str(uuid.uuid4())
     desc = f"Transaction: Spent {txn.amount} {txn.currency} at {txn.merchant} ({txn.category})"
     
@@ -94,7 +118,7 @@ async def ingest_transaction(txn: TransactionInput, background_tasks: Background
         event_id=event_id,
         text_description=desc,
         metadata={
-            "user_id": txn.user_id,
+            "user_id": current_user.email,
             "type": "transaction",
             "timestamp": txn.timestamp.isoformat(),
             "amount": txn.amount,
@@ -102,16 +126,20 @@ async def ingest_transaction(txn: TransactionInput, background_tasks: Background
         }
     )
     
-    return {"status": "recorded", "id": event_id}
+    return {"status": "recorded", "id": event_id, "transaction_id": transaction.id}
 
 @router.post("/intervention/check", response_model=InterventionResponse)
-async def check_intervention(req: InterventionRequest):
+async def check_intervention(
+    req: InterventionRequest, 
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Called by Chrome Extension to check if we should intervene.
-    Uses real user data and smart intervention logic.
+    Uses real PostgreSQL user data and smart intervention logic.
     """
-    # Use enhanced user data service for intervention decision
-    decision = user_data_service.should_intervene(req.user_id, req.context_url or "")
+    # Use PostgreSQL user data service for intervention decision
+    decision = postgresql_user_service.should_intervene(db, current_user.id, req.context_url or "")
     
     return InterventionResponse(
         should_intervene=decision.get("should_intervene", False),
@@ -120,13 +148,16 @@ async def check_intervention(req: InterventionRequest):
         delay_minutes=decision.get("delay_minutes", 0)
     )
 
-@router.get("/dashboard/{user_id}", response_model=DashboardStats)
-async def get_dashboard_stats(user_id: str):
+@router.get("/dashboard", response_model=DashboardStats)
+async def get_dashboard_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
-    Aggregate data for the frontend dashboard using real user data.
+    Aggregate data for the frontend dashboard using PostgreSQL data.
     """
-    # Use the enhanced user data service
-    return user_data_service.get_dashboard_stats(user_id)
+    # Use PostgreSQL user data service
+    return postgresql_user_service.get_dashboard_stats(db, current_user.id)
 
 @router.post("/therapy/chat", response_model=TherapyResponse)
 async def therapy_chat(msg: TherapyMessage):

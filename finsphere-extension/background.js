@@ -23,7 +23,33 @@ let extensionState = {
   lastCheckTime: 0,
   checkInterval: 5000, // 5 seconds
   pendingInterventions: [],
+  authToken: null,
 };
+
+/**
+ * Get authentication token from storage
+ */
+async function getAuthToken() {
+  try {
+    const result = await chrome.storage.local.get(['authToken']);
+    return result.authToken || null;
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return null;
+  }
+}
+
+/**
+ * Set authentication token in storage
+ */
+async function setAuthToken(token) {
+  try {
+    await chrome.storage.local.set({ authToken: token });
+    extensionState.authToken = token;
+  } catch (error) {
+    console.error('Error setting auth token:', error);
+  }
+}
 
 // Initialize extension
 chrome.runtime.onInstalled.addListener(() => {
@@ -32,7 +58,16 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 async function initializeExtension() {
-  const stored = await chrome.storage.local.get(['userId', 'isActive']);
+  const stored = await chrome.storage.local.get(['userId', 'isActive', 'authToken']);
+  
+  // Check for auth token first
+  if (stored.authToken) {
+    extensionState.authToken = stored.authToken;
+    console.log('FinSphere initialized with existing auth token');
+  } else {
+    console.log('No auth token found - user needs to login on frontend');
+  }
+  
   if (!stored.userId) {
     extensionState.userId = 'ext_user_' + Math.random().toString(36).substr(2, 9);
     await chrome.storage.local.set({ userId: extensionState.userId });
@@ -185,7 +220,19 @@ async function logInterventionResponse(action, accepted) {
  */
 async function fetchUserState(userId) {
   try {
-    const response = await fetch(`${API_URL}/dashboard/${userId}`);
+    const token = await getAuthToken();
+    if (!token) {
+      console.warn('No auth token found');
+      return getDefaultState();
+    }
+    
+    const response = await fetch(`${API_URL}/dashboard`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
     if (response.ok) {
       return await response.json();
     }
@@ -289,6 +336,16 @@ async function handleMessage(request, sender, sendResponse) {
       case 'getUserState':
         const state = await fetchUserState(extensionState.userId);
         sendResponse(state);
+        break;
+
+      case 'getAuthToken':
+        const token = await getAuthToken();
+        sendResponse({ token: token });
+        break;
+
+      case 'setAuthToken':
+        await setAuthToken(request.token);
+        sendResponse({ success: true });
         break;
 
       default:

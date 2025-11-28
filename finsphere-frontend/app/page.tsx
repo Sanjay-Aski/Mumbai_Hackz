@@ -6,36 +6,55 @@ import { PhysiologicalCorrelation } from "@/components/dashboard/physiological-c
 import { QuickStatsBar } from "@/components/dashboard/quick-stats-bar"
 import { InterventionPanel } from "@/components/dashboard/intervention-panel"
 import { IncomeExpenseChart } from "@/components/dashboard/income-expense-chart"
-import { useDashboardStats, useInterventions, useHealthCheck } from "@/hooks/use-api"
+import { ProtectedRoute, useAuth } from "@/contexts/AuthContext"
+import { getDashboardStats } from "@/lib/api"
 import { useState, useEffect } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertTriangle, Loader2 } from "lucide-react"
 
 export default function DashboardPage() {
-  const [userId, setUserId] = useState<string | null>(null)
+  return (
+    <ProtectedRoute>
+      <DashboardContent />
+    </ProtectedRoute>
+  )
+}
+
+function DashboardContent() {
+  const { user } = useAuth()
+  const [dashboardData, setDashboardData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
-  // Load userId from localStorage on client side
+  // Fetch dashboard data
   useEffect(() => {
-    const storedUserId = localStorage.getItem("finsphere_user_id")
-    if (!storedUserId) {
-      const newUserId = `user_${Math.random().toString(36).substr(2, 9)}`
-      localStorage.setItem("finsphere_user_id", newUserId)
-      setUserId(newUserId)
-    } else {
-      setUserId(storedUserId)
+    const fetchDashboardData = async () => {
+      if (!user) return
+      
+      try {
+        setLoading(true)
+        const data = await getDashboardStats()
+        setDashboardData(data)
+        setError(null)
+      } catch (err) {
+        console.error('Failed to fetch dashboard data:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load dashboard data')
+      } finally {
+        setLoading(false)
+      }
     }
-  }, [])
 
-  // Fetch data
-  const { data: dashboardData, loading: dashLoading, error: dashError } = useDashboardStats(userId || "")
-  const { data: interventions, loading: intLoading, error: intError } = useInterventions(userId || "")
-  const { status: apiStatus } = useHealthCheck()
+    fetchDashboardData()
+  }, [user])
 
-  if (!userId) {
+  if (loading) {
     return (
       <MainLayout>
         <div className="flex items-center justify-center h-96">
-          <Loader2 className="w-8 h-8 animate-spin text-[#00D4AA]" />
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-[#00D4AA] mx-auto" />
+            <p className="mt-2 text-gray-600">Loading dashboard...</p>
+          </div>
         </div>
       </MainLayout>
     )

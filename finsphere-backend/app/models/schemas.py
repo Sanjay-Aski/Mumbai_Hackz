@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
@@ -82,3 +82,40 @@ class InterventionListResponse(BaseModel):
     interventions: List[Dict[str, Any]]
     total_count: int
     date: str
+
+# --- Authentication Schemas ---
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    full_name: str
+    age: Optional[int] = None
+    profession: Optional[str] = None
+    location: Optional[str] = None
+    income_monthly: Optional[float] = None
+    savings_target: Optional[float] = None
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: int
+    email: str
+    full_name: str
+
+class UserProfile(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    age: Optional[int]
+    profession: Optional[str]
+    location: Optional[str]
+    income_monthly: Optional[float]
+    savings_target: Optional[float]
+    stress_baseline: Optional[float]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

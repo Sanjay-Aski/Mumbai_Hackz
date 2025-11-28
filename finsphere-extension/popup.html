@@ -2,24 +2,184 @@
 <html>
 <head>
   <style>
-    body { width: 300px; padding: 15px; font-family: sans-serif; }
-    .status { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
-    .dot { width: 10px; height: 10px; background: #22c55e; border-radius: 50%; }
+    body { 
+      width: 350px; 
+      padding: 15px; 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f8fafc;
+    }
+    .auth-section {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .status { 
+      display: flex; 
+      align-items: center; 
+      gap: 10px; 
+      margin-bottom: 15px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .dot { 
+      width: 10px; 
+      height: 10px; 
+      background: #22c55e; 
+      border-radius: 50%; 
+    }
     .dot.active { background: #22c55e; }
     .dot.inactive { background: #ef4444; }
-    h3 { margin: 0 0 5px 0; color: #1e293b; }
-    p { margin: 0; color: #64748b; font-size: 13px; }
+    .dot.warning { background: #eab308; }
+    h3 { 
+      margin: 0 0 5px 0; 
+      color: #1e293b; 
+      font-size: 14px;
+      font-weight: 600;
+    }
+    p { 
+      margin: 0; 
+      color: #64748b; 
+      font-size: 12px; 
+    }
+    .user-info {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .user-email {
+      font-size: 12px;
+      color: #1e293b;
+      margin-bottom: 4px;
+    }
+    .user-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .stat-box {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    .button {
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 6px;
+    }
+    .button-primary {
+      background: #3b82f6;
+      color: white;
+    }
+    .button-primary:hover {
+      background: #2563eb;
+    }
+    .button-secondary {
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+    .button-secondary:hover {
+      background: #cbd5e1;
+    }
+    .not-logged-in {
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .not-logged-in p {
+      color: #991b1b;
+      margin-bottom: 8px;
+    }
+    hr {
+      border: 0;
+      border-top: 1px solid #e2e8f0;
+      margin: 10px 0;
+    }
+    .no-auth {
+      background: #fef2f2;
+      color: #991b1b;
+    }
   </style>
+  <script src="popup.js"></script>
 </head>
 <body>
-  <div class="status">
-    <div class="dot active"></div>
-    <div>
-      <h3>FinSphere Active</h3>
-      <p>Monitoring for financial stress.</p>
+  <div id="auth-status">
+    <div class="not-logged-in">
+      <p style="margin: 0; font-weight: 600;">Not Logged In</p>
+      <p style="margin: 4px 0 0 0; font-size: 11px;">Please login on the FinSphere dashboard to enable full features.</p>
+      <button class="button button-primary" onclick="openDashboard()" style="margin-top: 8px;">Open Dashboard</button>
     </div>
   </div>
-  <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 10px 0;">
-  <p>Current State: <strong>Calm</strong></p>
+
+  <div id="logged-in-section" style="display: none;">
+    <div class="status">
+      <div class="dot active"></div>
+      <div>
+        <h3 id="extension-status">FinSphere Active</h3>
+        <p id="status-text">Monitoring for financial stress.</p>
+      </div>
+    </div>
+
+    <div class="user-info">
+      <div class="user-name" id="user-name">Loading...</div>
+      <div class="user-email" id="user-email">Loading...</div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-box">
+        <div class="stat-value" id="stress-level">--</div>
+        <div class="stat-label">Stress Level</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="spending-risk">--</div>
+        <div class="stat-label">Spending Risk</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="cognitive-load">--</div>
+        <div class="stat-label">Cognitive Load</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="savings-runway">--</div>
+        <div class="stat-label">Savings Runway</div>
+      </div>
+    </div>
+
+    <button class="button button-secondary" onclick="toggleExtension()">
+      <span id="toggle-text">Disable Monitoring</span>
+    </button>
+    <button class="button button-secondary" onclick="logout()">Logout</button>
+  </div>
 </body>
 </html>
