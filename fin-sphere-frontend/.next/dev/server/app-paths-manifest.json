@@ -1,0 +1,7 @@
+{
+  "/biometrics/page": "app/biometrics/page.js",
+  "/coach/page": "app/coach/page.js",
+  "/extension/page": "app/extension/page.js",
+  "/income/page": "app/income/page.js",
+  "/page": "app/page.js"
+}
