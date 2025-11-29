@@ -1,10 +1,11 @@
 /**
- * FinSphere Extension - Popup Script
- * Displays auth status, user info, and control panel
+ * FinSphere Extension - Popup Script (No Auth Required)
+ * Universal e-commerce protection control panel
  */
 
 const API_URL = 'http://localhost:8000/api/v1';
 const FRONTEND_URL = 'http://localhost:3000';
+const OLLAMA_API = 'http://localhost:11434';
 
 // Load popup on open
 document.addEventListener('DOMContentLoaded', async () => {
@@ -12,166 +13,211 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 /**
- * Load and display user auth data in popup
+ * Load extension status and stats (no auth required)
  */
 async function loadPopupData() {
   try {
-    // Get auth token from background script
-    const token = await getAuthToken();
-    const user = await getStoredUser();
-
-    if (!token || !user) {
-      // Not logged in
-      document.getElementById('auth-status').style.display = 'block';
-      document.getElementById('logged-in-section').style.display = 'none';
-      return;
-    }
-
-    // Logged in - show user info and stats
-    document.getElementById('auth-status').style.display = 'none';
-    document.getElementById('logged-in-section').style.display = 'block';
-
-    // Display user info
-    document.getElementById('user-name').textContent = user.full_name || 'User';
-    document.getElementById('user-email').textContent = user.email || 'email@example.com';
-
-    // Fetch current user state from backend
-    await loadUserStats(token);
-
+    // Get extension status from background script
+    const extensionStatus = await getExtensionStatus();
+    const aiStatus = await getAIStatus();
+    
+    // Update status display
+    updateStatusDisplay(extensionStatus, aiStatus);
+    
+    // Load today's stats
+    await loadTodaysStats();
+    
   } catch (error) {
     console.error('Error loading popup data:', error);
   }
 }
 
 /**
- * Get auth token from background script
+ * Get extension status from background script
  */
-async function getAuthToken() {
+async function getExtensionStatus() {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage(
-      { action: 'getAuthToken' },
+      { action: 'extensionPing' },
       (response) => {
-        resolve(response?.token || null);
+        resolve({
+          isActive: response?.status === 'active',
+          userId: response?.userId
+        });
       }
     );
   });
 }
 
 /**
- * Get stored user info from chrome storage
+ * Get AI status from background script
  */
-async function getStoredUser() {
+async function getAIStatus() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['user'], (result) => {
-      if (result.user) {
-        try {
-          resolve(JSON.parse(result.user));
-        } catch {
-          resolve(null);
-        }
-      } else {
-        resolve(null);
+    chrome.runtime.sendMessage(
+      { action: 'getAIStatus' },
+      (response) => {
+        resolve({
+          aiEnabled: response?.aiEnabled || false,
+          ollamaAvailable: response?.ollamaAvailable || false,
+          model: response?.model || 'gpt-oss:20-cloud'
+        });
       }
-    });
+    );
   });
 }
 
 /**
- * Load user stats from backend
+ * Load today's intervention stats
  */
-async function loadUserStats(token) {
+async function loadTodaysStats() {
   try {
-    const response = await fetch(`${API_URL}/dashboard`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      updateStatsDisplay(data);
-    } else {
-      console.warn('Failed to load user stats');
-    }
+    // Get from local storage or default values
+    const stats = await chrome.storage.local.get(['todayStats']);
+    const todayStats = stats.todayStats || {
+      interventions: 0,
+      potentialSavings: 0
+    };
+    
+    document.getElementById('interventions-today').textContent = todayStats.interventions;
+    document.getElementById('money-saved').textContent = `₹${todayStats.potentialSavings.toLocaleString()}`;
+    
   } catch (error) {
-    console.error('Error fetching user stats:', error);
+    console.error('Error loading today\'s stats:', error);
   }
 }
 
 /**
- * Update stats display in popup
+ * Update status display based on extension and AI status
  */
-function updateStatsDisplay(data) {
-  // Map stress level to display
-  const stressLevelMap = {
-    'Low': '😊 Low',
-    'Medium': '😐 Medium',
-    'High': '😰 High'
-  };
-
-  const spendingRiskMap = {
-    'Safe': '✓ Safe',
-    'Caution': '⚠ Caution',
-    'Risk': '⛔ Risk'
-  };
-
-  document.getElementById('stress-level').textContent = 
-    stressLevelMap[data.stress_level] || data.stress_level || '--';
+function updateStatusDisplay(extensionStatus, aiStatus) {
+  const statusDot = document.getElementById('status-dot');
+  const statusText = document.getElementById('status-text');
+  const aiStatusEl = document.getElementById('ai-status');
+  const toggleText = document.getElementById('toggle-text');
+  const aiToggleText = document.getElementById('ai-toggle-text');
   
-  document.getElementById('spending-risk').textContent = 
-    spendingRiskMap[data.spending_risk] || data.spending_risk || '--';
+  // Extension status
+  if (extensionStatus.isActive) {
+    statusDot.className = 'dot active';
+    statusText.textContent = 'Smart purchase protection active';
+    toggleText.textContent = 'Disable Protection';
+  } else {
+    statusDot.className = 'dot inactive';
+    statusText.textContent = 'Protection disabled';
+    toggleText.textContent = 'Enable Protection';
+  }
   
-  document.getElementById('cognitive-load').textContent = 
-    data.cognitive_load || '--';
-  
-  document.getElementById('savings-runway').textContent = 
-    data.savings_runway || '--';
+  // AI status
+  if (aiStatus.aiEnabled && aiStatus.ollamaAvailable) {
+    aiStatusEl.textContent = '🤖 Ready';
+    aiToggleText.textContent = 'Disable AI Analysis';
+  } else if (aiStatus.aiEnabled && !aiStatus.ollamaAvailable) {
+    aiStatusEl.textContent = '⚠️ Offline';
+    aiToggleText.textContent = 'Disable AI Analysis';
+  } else {
+    aiStatusEl.textContent = '❌ Disabled';
+    aiToggleText.textContent = 'Enable AI Analysis';
+  }
 }
 
 /**
- * Toggle extension monitoring
+ * Toggle AI analysis on/off
+ */
+async function toggleAI() {
+  try {
+    const aiStatus = await getAIStatus();
+    const newStatus = !aiStatus.aiEnabled;
+    
+    chrome.runtime.sendMessage(
+      { action: 'toggleAI', enabled: newStatus },
+      (response) => {
+        if (response && response.success) {
+          const aiToggleText = document.getElementById('ai-toggle-text');
+          const aiStatusEl = document.getElementById('ai-status');
+          
+          if (newStatus) {
+            aiToggleText.textContent = 'Disable AI Analysis';
+            aiStatusEl.textContent = response.ollamaAvailable ? '🤖 Ready' : '⚠️ Offline';
+          } else {
+            aiToggleText.textContent = 'Enable AI Analysis';
+            aiStatusEl.textContent = '❌ Disabled';
+          }
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Error toggling AI:', error);
+  }
+}
+
+/**
+ * Test Ollama connection
+ */
+async function testOllama() {
+  const testButton = document.getElementById('test-ollama');
+  const originalText = testButton.textContent;
+  
+  testButton.textContent = 'Testing...';
+  testButton.disabled = true;
+  
+  try {
+    chrome.runtime.sendMessage(
+      { action: 'testOllama' },
+      (response) => {
+        if (response && response.available) {
+          testButton.textContent = '✅ Connected';
+          setTimeout(() => {
+            testButton.textContent = originalText;
+            testButton.disabled = false;
+          }, 2000);
+        } else {
+          testButton.textContent = '❌ Failed';
+          setTimeout(() => {
+            testButton.textContent = originalText;
+            testButton.disabled = false;
+          }, 2000);
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Error testing Ollama:', error);
+    testButton.textContent = '❌ Error';
+    setTimeout(() => {
+      testButton.textContent = originalText;
+      testButton.disabled = false;
+    }, 2000);
+  }
+}
+
+/**
+ * Toggle extension protection
  */
 async function toggleExtension() {
   try {
-    const response = await chrome.runtime.sendMessage(
+    chrome.runtime.sendMessage(
       { action: 'toggleExtension' },
       (response) => {
         if (response && response.success) {
           const isActive = response.isActive;
-          document.getElementById('toggle-text').textContent = 
-            isActive ? 'Disable Monitoring' : 'Enable Monitoring';
-          
-          // Show status update
+          const statusDot = document.getElementById('status-dot');
           const statusText = document.getElementById('status-text');
+          const toggleText = document.getElementById('toggle-text');
+          
           if (isActive) {
-            statusText.textContent = 'Monitoring for financial stress.';
+            statusDot.className = 'dot active';
+            statusText.textContent = 'Smart purchase protection active';
+            toggleText.textContent = 'Disable Protection';
           } else {
-            statusText.textContent = 'Monitoring is disabled.';
+            statusDot.className = 'dot inactive';
+            statusText.textContent = 'Protection disabled';
+            toggleText.textContent = 'Enable Protection';
           }
         }
       }
     );
   } catch (error) {
     console.error('Error toggling extension:', error);
-  }
-}
-
-/**
- * Logout user
- */
-async function logout() {
-  try {
-    // Clear stored auth data
-    await chrome.storage.local.remove(['authToken', 'user']);
-    
-    // Reload popup to show login state
-    await loadPopupData();
-    
-    // Show confirmation
-    alert('Logged out successfully. Please login again on the dashboard.');
-  } catch (error) {
-    console.error('Error logging out:', error);
   }
 }
 

@@ -110,16 +110,16 @@
     .button-secondary:hover {
       background: #cbd5e1;
     }
-    .not-logged-in {
-      background: #fee2e2;
-      border: 1px solid #fca5a5;
+    .universal-info {
+      background: #f0fdf4;
+      border: 1px solid #22c55e;
       border-radius: 8px;
       padding: 12px;
       text-align: center;
       margin-bottom: 12px;
     }
-    .not-logged-in p {
-      color: #991b1b;
+    .universal-info p {
+      color: #166534;
       margin-bottom: 8px;
     }
     hr {
@@ -127,59 +127,74 @@
       border-top: 1px solid #e2e8f0;
       margin: 10px 0;
     }
-    .no-auth {
-      background: #fef2f2;
-      color: #991b1b;
+    .ai-controls {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      padding: 8px;
+      margin-top: 8px;
+    }
+    .button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
   </style>
   <script src="popup.js"></script>
 </head>
 <body>
-  <div id="auth-status">
-    <div class="not-logged-in">
-      <p style="margin: 0; font-weight: 600;">Not Logged In</p>
-      <p style="margin: 4px 0 0 0; font-size: 11px;">Please login on the FinSphere dashboard to enable full features.</p>
-      <button class="button button-primary" onclick="openDashboard()" style="margin-top: 8px;">Open Dashboard</button>
+  <!-- Main Extension Status -->
+  <div class="status">
+    <div class="dot active" id="status-dot"></div>
+    <div>
+      <h3 id="extension-status">FinSphere Universal AI</h3>
+      <p id="status-text">Smart purchase protection active</p>
     </div>
   </div>
 
-  <div id="logged-in-section" style="display: none;">
-    <div class="status">
-      <div class="dot active"></div>
-      <div>
-        <h3 id="extension-status">FinSphere Active</h3>
-        <p id="status-text">Monitoring for financial stress.</p>
-      </div>
-    </div>
+  <!-- Extension Info -->
+  <div class="user-info">
+    <div class="user-name">Universal E-commerce Guardian</div>
+    <div class="user-email">Protecting your spending across 75+ sites</div>
+  </div>
 
-    <div class="user-info">
-      <div class="user-name" id="user-name">Loading...</div>
-      <div class="user-email" id="user-email">Loading...</div>
+  <!-- Stats Grid -->
+  <div class="stats-grid">
+    <div class="stat-box">
+      <div class="stat-value" id="ai-status">🤖 Ready</div>
+      <div class="stat-label">AI Analysis</div>
     </div>
-
-    <div class="stats-grid">
-      <div class="stat-box">
-        <div class="stat-value" id="stress-level">--</div>
-        <div class="stat-label">Stress Level</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-value" id="spending-risk">--</div>
-        <div class="stat-label">Spending Risk</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-value" id="cognitive-load">--</div>
-        <div class="stat-label">Cognitive Load</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-value" id="savings-runway">--</div>
-        <div class="stat-label">Savings Runway</div>
-      </div>
+    <div class="stat-box">
+      <div class="stat-value" id="sites-supported">75+</div>
+      <div class="stat-label">Sites Supported</div>
     </div>
+    <div class="stat-box">
+      <div class="stat-value" id="interventions-today">0</div>
+      <div class="stat-label">Interventions Today</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value" id="money-saved">₹0</div>
+      <div class="stat-label">Potential Savings</div>
+    </div>
+  </div>
 
-    <button class="button button-secondary" onclick="toggleExtension()">
-      <span id="toggle-text">Disable Monitoring</span>
+  <!-- Control Buttons -->
+  <button class="button button-secondary" onclick="toggleExtension()">
+    <span id="toggle-text">Disable Protection</span>
+  </button>
+  
+  <button class="button button-primary" onclick="openDashboard()">Open Dashboard</button>
+  
+  <hr>
+  
+  <!-- AI Controls -->
+  <div style="margin-bottom: 8px;">
+    <h3 style="margin: 8px 0 4px 0;">AI Features</h3>
+    <button class="button button-secondary" onclick="toggleAI()" id="ai-toggle">
+      <span id="ai-toggle-text">Disable AI Analysis</span>
     </button>
-    <button class="button button-secondary" onclick="logout()">Logout</button>
+    <button class="button button-secondary" onclick="testOllama()" id="test-ollama">
+      Test Ollama Connection
+    </button>
   </div>
 </body>
 </html>
