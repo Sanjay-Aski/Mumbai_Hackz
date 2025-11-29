@@ -1,6 +1,6 @@
 // content.js
-// Run check immediately on load
-checkRisk();
+// Set up buy button monitoring immediately
+setupBuyButtonMonitoring();
 
 // Also set up listener for messages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -11,6 +11,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'analyzePageContent') {
       const analysis = analyzePageContent(request.type);
       sendResponse({ hasContent: true, ...analysis });
+    } else if (request.action === 'extractOrderDetails') {
+      const orderDetails = extractOrderDetails();
+      sendResponse({ orderDetails });
     }
   } catch (error) {
     console.error('Error in content script message handler:', error);
@@ -18,23 +21,119 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-function checkRisk() {
-  try {
-    chrome.runtime.sendMessage(
-      { action: "checkIntervention", url: window.location.href },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.warn('Failed to check intervention:', chrome.runtime.lastError);
-          return;
-        }
-        if (response && response.should_intervene) {
-          showIntervention(response);
-        }
+/**
+ * Set up monitoring for buy button clicks
+ */
+function setupBuyButtonMonitoring() {
+  // Common buy button selectors across different sites
+  const buyButtonSelectors = [
+    // Amazon
+    '#buy-now-button', '#add-to-cart-button', '[name="submit.buy-now"]', '[data-action="buy-now"]',
+    // Flipkart  
+    '._2KpZ6l._2U9uOA._3v1-ww', '.qa-add-to-cart', '._2KpZ6l._2U9uOA',
+    // Myntra
+    '.pdp-add-to-bag', '.buyButton', '.add-to-bag',
+    // Swiggy/Zomato
+    '.place-order', '.checkout-button', '[data-testid="checkout-button"]',
+    // Generic
+    'button[class*="buy"]', 'button[class*="cart"]', 'button[class*="checkout"]',
+    'a[href*="buy"]', 'a[class*="buy"]', '.buy-now', '.add-to-cart'
+  ];
+
+  // Add click listeners to all buy buttons
+  buyButtonSelectors.forEach(selector => {
+    document.addEventListener('click', function(event) {
+      if (event.target.matches(selector) || event.target.closest(selector)) {
+        event.preventDefault(); // Prevent immediate purchase
+        event.stopPropagation();
+        handleBuyButtonClick(event.target);
       }
-    );
+    }, true);
+  });
+
+  console.log('FinSphere: Buy button monitoring active');
+}
+
+/**
+ * Handle buy button click - extract order details and check for overspending
+ */
+async function handleBuyButtonClick(buttonElement) {
+  try {
+    console.log('Buy button clicked, analyzing purchase...');
+    
+    // Extract order details from the page
+    const orderDetails = extractOrderDetails();
+    console.log('Order details:', orderDetails);
+
+    // Send to background script for analysis
+    chrome.runtime.sendMessage({
+      action: 'analyzePurchase',
+      orderDetails: orderDetails,
+      url: window.location.href
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('Failed to analyze purchase:', chrome.runtime.lastError);
+        // Allow purchase to continue if analysis fails
+        buttonElement.click();
+        return;
+      }
+
+      if (response && response.shouldIntervene) {
+        // Show spending intervention
+        showSpendingIntervention(response, buttonElement);
+      } else {
+        // Safe to proceed with purchase
+        console.log('Purchase approved, proceeding...');
+        buttonElement.click();
+      }
+    });
+
   } catch (error) {
-    console.error('Error checking risk:', error);
+    console.error('Error handling buy button click:', error);
+    // Allow purchase on error
+    buttonElement.click();
   }
+}
+
+/**
+ * Extract order details from various e-commerce sites
+ */
+function extractOrderDetails() {
+  const details = {
+    amount: 0,
+    currency: 'INR',
+    productName: '',
+    category: '',
+    merchant: '',
+    quantity: 1
+  };
+
+  // Get merchant from URL
+  const hostname = window.location.hostname.toLowerCase();
+  if (hostname.includes('amazon')) {
+    details.merchant = 'Amazon';
+    details.category = extractAmazonDetails(details);
+  } else if (hostname.includes('flipkart')) {
+    details.merchant = 'Flipkart';
+    details.category = extractFlipkartDetails(details);
+  } else if (hostname.includes('myntra')) {
+    details.merchant = 'Myntra';
+    details.category = 'Fashion';
+    extractMyntraDetails(details);
+  } else if (hostname.includes('swiggy')) {
+    details.merchant = 'Swiggy';
+    details.category = 'Food';
+    extractSwiggyDetails(details);
+  } else if (hostname.includes('zomato')) {
+    details.merchant = 'Zomato';
+    details.category = 'Food';
+    extractZomatoDetails(details);
+  } else {
+    details.merchant = hostname;
+    extractGenericDetails(details);
+  }
+
+  return details;
 }
 
 function analyzePageContent(type) {
@@ -260,5 +359,184 @@ function enableBuyButtons() {
         btn.innerText = btn.dataset.originalText;
       }
     });
+  });
+}
+
+/**
+ * Extract Amazon order details
+ */
+function extractAmazonDetails(details) {
+  // Product name
+  const titleEl = document.querySelector('#productTitle, .product-title');
+  if (titleEl) details.productName = titleEl.innerText.trim();
+
+  // Price
+  const priceSelectors = [
+    '.a-price-whole', '.a-offscreen', '.a-price .a-offscreen',
+    '[data-asin-price]', '.a-price-range .a-price .a-offscreen'
+  ];
+  
+  for (const selector of priceSelectors) {
+    const priceEl = document.querySelector(selector);
+    if (priceEl) {
+      const priceText = priceEl.innerText.replace(/[^\d.]/g, '');
+      details.amount = parseFloat(priceText) || 0;
+      break;
+    }
+  }
+
+  // Category from breadcrumbs
+  const breadcrumbEl = document.querySelector('#wayfinding-breadcrumbs_container');
+  if (breadcrumbEl) {
+    const breadcrumbs = breadcrumbEl.innerText;
+    if (breadcrumbs.includes('Electronics')) return 'Electronics';
+    if (breadcrumbs.includes('Clothing')) return 'Fashion';
+    if (breadcrumbs.includes('Books')) return 'Books';
+  }
+
+  return 'General';
+}
+
+/**
+ * Extract Flipkart order details
+ */
+function extractFlipkartDetails(details) {
+  // Product name
+  const titleEl = document.querySelector('.B_NuCI, ._35KyD6');
+  if (titleEl) details.productName = titleEl.innerText.trim();
+
+  // Price
+  const priceEl = document.querySelector('._30jeq3._16Jk6d, ._3I9_wc._2p6lqe');
+  if (priceEl) {
+    const priceText = priceEl.innerText.replace(/[^\d]/g, '');
+    details.amount = parseFloat(priceText) || 0;
+  }
+
+  return 'General';
+}
+
+/**
+ * Extract Myntra order details
+ */
+function extractMyntraDetails(details) {
+  // Product name
+  const titleEl = document.querySelector('.pdp-product-name, .pdp-name');
+  if (titleEl) details.productName = titleEl.innerText.trim();
+
+  // Price
+  const priceEl = document.querySelector('.pdp-price strong, .pdp-price');
+  if (priceEl) {
+    const priceText = priceEl.innerText.replace(/[^\d]/g, '');
+    details.amount = parseFloat(priceText) || 0;
+  }
+}
+
+/**
+ * Extract Swiggy order details
+ */
+function extractSwiggyDetails(details) {
+  // Total from cart
+  const totalEl = document.querySelector('[data-testid="total-amount"], .total-amount');
+  if (totalEl) {
+    const priceText = totalEl.innerText.replace(/[^\d]/g, '');
+    details.amount = parseFloat(priceText) || 0;
+  }
+
+  // Restaurant name
+  const restaurantEl = document.querySelector('.restaurant-name, [data-testid="restaurant-name"]');
+  if (restaurantEl) details.productName = restaurantEl.innerText.trim();
+}
+
+/**
+ * Extract Zomato order details
+ */
+function extractZomatoDetails(details) {
+  // Total from cart
+  const totalEl = document.querySelector('.total, [data-testid="total"]');
+  if (totalEl) {
+    const priceText = totalEl.innerText.replace(/[^\d]/g, '');
+    details.amount = parseFloat(priceText) || 0;
+  }
+}
+
+/**
+ * Generic order detail extraction
+ */
+function extractGenericDetails(details) {
+  // Look for price patterns
+  const pricePatterns = [
+    /₹\s*(\d+(?:,\d+)*(?:\.\d{2})?)/,
+    /INR\s*(\d+(?:,\d+)*(?:\.\d{2})?)/,
+    /\$\s*(\d+(?:,\d+)*(?:\.\d{2})?)/
+  ];
+
+  const pageText = document.body.innerText;
+  for (const pattern of pricePatterns) {
+    const match = pageText.match(pattern);
+    if (match) {
+      details.amount = parseFloat(match[1].replace(/,/g, ''));
+      break;
+    }
+  }
+
+  // Try to get product name from title or h1
+  const titleEl = document.querySelector('h1, .product-title, .title');
+  if (titleEl) details.productName = titleEl.innerText.trim();
+}
+
+/**
+ * Show spending intervention overlay
+ */
+function showSpendingIntervention(analysis, buttonElement) {
+  const overlay = document.createElement('div');
+  overlay.className = 'finsphere-overlay';
+  
+  const riskColor = analysis.riskLevel === 'high' ? '#ef4444' : 
+                   analysis.riskLevel === 'medium' ? '#f59e0b' : '#22c55e';
+  
+  overlay.innerHTML = `
+    <div class="finsphere-card" style="border-left: 4px solid ${riskColor}">
+      <div class="finsphere-title">🚨 Spending Alert</div>
+      <div class="finsphere-message">
+        <strong>Order: ₹${analysis.orderDetails.amount} - ${analysis.orderDetails.productName}</strong>
+      </div>
+      
+      <div class="finsphere-analysis" style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 15px 0;">
+        <h4 style="margin: 0 0 10px 0; color: #1e293b;">Analysis:</h4>
+        ${analysis.reasons.map(reason => `<div style="margin: 5px 0;">• ${reason}</div>`).join('')}
+        
+        <div style="margin-top: 15px;">
+          <strong>Risk Level: ${analysis.riskLevel.toUpperCase()}</strong>
+        </div>
+      </div>
+
+      ${analysis.recommendations.length > 0 ? `
+        <div class="finsphere-recommendations" style="background: #f1f5f9; padding: 15px; border-radius: 8px; margin: 15px 0;">
+          <h4 style="margin: 0 0 10px 0; color: #1e293b;">Recommendations:</h4>
+          ${analysis.recommendations.map(rec => `<div style="margin: 5px 0;">💡 ${rec}</div>`).join('')}
+        </div>
+      ` : ''}
+      
+      <div class="finsphere-actions">
+        <button class="finsphere-btn finsphere-btn-secondary" id="fs-cancel">Cancel Purchase</button>
+        <button class="finsphere-btn finsphere-btn-primary" id="fs-proceed">Continue Anyway</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Event handlers
+  document.getElementById('fs-cancel').addEventListener('click', () => {
+    logInterventionAccepted('cancelled', true);
+    overlay.remove();
+    console.log('Purchase cancelled by user');
+  });
+
+  document.getElementById('fs-proceed').addEventListener('click', () => {
+    logInterventionAccepted('proceeded', false);
+    overlay.remove();
+    // Trigger original button click
+    buttonElement.click();
   });
 }

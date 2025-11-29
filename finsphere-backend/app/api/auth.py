@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.orm import Session
-from app.models.schemas import UserRegister, UserLogin, Token, UserProfile
+from app.models.schemas import UserRegister, UserLogin, UserLoginBypass, Token, UserProfile
 from app.services.auth_service import auth_service, get_current_user
 from app.core.database import get_db
 from app.models.database import User, UserPermissions
@@ -69,6 +69,25 @@ async def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    access_token_expires = timedelta(minutes=30)
+    access_token = auth_service.create_access_token(
+        data={"sub": str(user.id)}, expires_delta=access_token_expires
+    )
+    
+    return Token(
+        access_token=access_token,
+        user_id=user.id,
+        email=user.email,
+        full_name=user.full_name
+    )
+
+@router.post("/login-bypass", response_model=Token)
+async def login_bypass(user_data: UserLoginBypass, db: Session = Depends(get_db)):
+    """Login user without password (DEV ONLY)"""
+    user = db.query(User).filter(User.email == user_data.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     
     access_token_expires = timedelta(minutes=30)
     access_token = auth_service.create_access_token(

@@ -2910,6 +2910,8 @@ __turbopack_context__.s([
     ()=>getDashboardStats,
     "getInterventions",
     ()=>getInterventions,
+    "getProfile",
+    ()=>getProfile,
     "healthCheck",
     ()=>healthCheck,
     "ingestBiometrics",
@@ -2920,32 +2922,71 @@ __turbopack_context__.s([
     ()=>ingestTransaction,
     "logIntervention",
     ()=>logIntervention,
+    "login",
+    ()=>login,
+    "register",
+    ()=>register,
     "therapyChat",
     ()=>therapyChat
 ]);
 "use client";
 /**
  * FinSphere Frontend API Client
- * Handles all API calls to the backend
+ * Handles all API calls to the backend with authentication
  */ const API_BASE_URL = typeof process !== "undefined" && process.env ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1" : "http://localhost:8000/api/v1";
-// Helper function for API calls
+// Get auth token from localStorage
+const getAuthToken = ()=>{
+    if ("TURBOPACK compile-time falsy", 0) //TURBOPACK unreachable
+    ;
+    return null;
+};
+// Helper function for API calls with authentication
 async function apiCall(endpoint, options = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
+    const token = getAuthToken();
+    const headers = {
+        "Content-Type": "application/json",
+        ...options.headers
+    };
+    // Add auth header if token exists
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
     const response = await fetch(url, {
-        headers: {
-            "Content-Type": "application/json",
-            ...options.headers
-        },
+        headers,
         ...options
     });
     if (!response.ok) {
+        if (response.status === 401) {
+            // Token expired or invalid, redirect to login
+            if ("TURBOPACK compile-time falsy", 0) //TURBOPACK unreachable
+            ;
+        }
         const errorData = await response.json().catch(()=>({}));
         throw new Error(errorData.detail || `API Error: ${response.status}`);
     }
     return response.json();
 }
-async function getDashboardStats(userId) {
-    return apiCall(`/dashboard/${userId}`);
+async function login(email, password) {
+    return apiCall('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+            email,
+            password
+        })
+    });
+}
+async function register(userData) {
+    return apiCall('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(userData)
+    });
+}
+async function getProfile() {
+    return apiCall('/auth/profile');
+}
+async function getDashboardStats() {
+    return apiCall('/dashboard');
 }
 async function ingestBiometrics(data) {
     return apiCall("/ingest/biometrics", {

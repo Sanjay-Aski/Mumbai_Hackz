@@ -1,5 +1,5 @@
 {
-  "/biometrics/page": "app/biometrics/page.js",
   "/coach/page": "app/coach/page.js",
+  "/graph/page": "app/graph/page.js",
   "/page": "app/page.js"
 }

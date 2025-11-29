@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react"
+import { useUser } from "@/contexts/UserContext"
 
 interface SidebarProps {
   collapsed: boolean
@@ -35,6 +36,15 @@ const navItems = [
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname()
+  const { selectedUser } = useUser()
+
+  // Generate initials for avatar fallback
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  }
+
+  const displayName = selectedUser?.full_name || "Guest User"
+  const initials = getInitials(displayName)
 
   return (
     <aside
@@ -65,13 +75,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <div className={cn("flex items-center gap-3", collapsed && "flex-col")}>
           <Avatar className="w-10 h-10 ring-2 ring-[#00D4AA]">
             <AvatarImage src="/professional-woman-avatar.png" />
-            <AvatarFallback className="bg-[#00D4AA] text-[#1A2B3C]">SD</AvatarFallback>
+            <AvatarFallback className="bg-[#00D4AA] text-[#1A2B3C]">{initials}</AvatarFallback>
           </Avatar>
           {!collapsed && (
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm truncate">Sarah Designer</p>
+              <p className="font-medium text-sm truncate">{displayName}</p>
               <Badge variant="outline" className="text-[10px] text-[#00D4AA] border-[#00D4AA]/50 mt-1">
-                Pro Member
+                {selectedUser ? selectedUser.spending_personality : 'Select User'}
               </Badge>
             </div>
           )}

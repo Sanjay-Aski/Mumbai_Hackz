@@ -2,7 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
-import { AuthProvider } from '@/contexts/AuthContext'
+import { UserProvider } from "@/contexts/UserContext"
 import "./globals.css"
 
 const inter = Inter({
@@ -50,9 +50,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
-        <AuthProvider>
+        <UserProvider>
           {children}
-        </AuthProvider>
+        </UserProvider>
         <Analytics />
       </body>
     </html>

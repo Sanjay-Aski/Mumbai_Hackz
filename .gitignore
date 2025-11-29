@@ -9,6 +9,7 @@ __pycache__/
 # Distribution / packaging
 temp/
 node_modules/
+.next/
 
 # Distribution / packaging
 .Python

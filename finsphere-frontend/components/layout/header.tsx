@@ -13,10 +13,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Plus, Mic, Watch, Bell, Shield, Settings, User, LogOut } from "lucide-react"
+import { useUser } from "@/contexts/UserContext"
 
 export function Header() {
   const [browserGuard, setBrowserGuard] = useState(true)
   const [hasNotifications] = useState(true)
+  const { selectedUser } = useUser()
+
+  // Generate initials for avatar fallback
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  }
+
+  const displayName = selectedUser?.full_name || "Guest User"
+  const displayEmail = selectedUser?.email || "guest@finsphere.com"
+  const initials = getInitials(displayName)
 
   return (
     <header className="h-16 bg-white border-b border-[#E2E8F0] px-6 flex items-center justify-between sticky top-0 z-30">
@@ -69,15 +80,18 @@ export function Header() {
             <Button variant="ghost" className="relative h-10 w-10 rounded-full">
               <Avatar className="h-10 w-10">
                 <AvatarImage src="/professional-woman-diverse.png" />
-                <AvatarFallback className="bg-[#00D4AA] text-[#1A2B3C]">SD</AvatarFallback>
+                <AvatarFallback className="bg-[#00D4AA] text-[#1A2B3C]">{initials}</AvatarFallback>
               </Avatar>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56" align="end">
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium">Sarah Designer</p>
-                <p className="text-xs text-muted-foreground">sarah@design.co</p>
+                <p className="text-sm font-medium">{displayName}</p>
+                <p className="text-xs text-muted-foreground">{displayEmail}</p>
+                {selectedUser && (
+                  <p className="text-xs text-blue-600">{selectedUser.profession} • {selectedUser.location}</p>
+                )}
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />

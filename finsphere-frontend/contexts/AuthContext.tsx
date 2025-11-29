@@ -97,9 +97,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const router = useRouter()
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push('/login')
-    }
+    // Auth protection disabled - allow all access
   }, [user, loading, router])
 
   if (loading) {

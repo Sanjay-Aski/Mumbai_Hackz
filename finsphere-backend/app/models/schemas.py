@@ -98,6 +98,9 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class UserLoginBypass(BaseModel):
+    email: EmailStr
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"

@@ -23,32 +23,20 @@ let extensionState = {
   lastCheckTime: 0,
   checkInterval: 5000, // 5 seconds
   pendingInterventions: [],
-  authToken: null,
 };
 
 /**
  * Get authentication token from storage
  */
 async function getAuthToken() {
-  try {
-    const result = await chrome.storage.local.get(['authToken']);
-    return result.authToken || null;
-  } catch (error) {
-    console.error('Error getting auth token:', error);
-    return null;
-  }
+  return null; // Auth disabled
 }
 
 /**
  * Set authentication token in storage
  */
 async function setAuthToken(token) {
-  try {
-    await chrome.storage.local.set({ authToken: token });
-    extensionState.authToken = token;
-  } catch (error) {
-    console.error('Error setting auth token:', error);
-  }
+  // Auth disabled - no-op
 }
 
 // Initialize extension
@@ -58,15 +46,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 async function initializeExtension() {
-  const stored = await chrome.storage.local.get(['userId', 'isActive', 'authToken']);
-  
-  // Check for auth token first
-  if (stored.authToken) {
-    extensionState.authToken = stored.authToken;
-    console.log('FinSphere initialized with existing auth token');
-  } else {
-    console.log('No auth token found - user needs to login on frontend');
-  }
+  const stored = await chrome.storage.local.get(['userId', 'isActive']);
   
   if (!stored.userId) {
     extensionState.userId = 'ext_user_' + Math.random().toString(36).substr(2, 9);
@@ -216,30 +196,123 @@ async function logInterventionResponse(action, accepted) {
 }
 
 /**
- * Fetch current user financial state
+ * Fetch current user financial state and transaction history from backend
  */
 async function fetchUserState(userId) {
   try {
-    const token = await getAuthToken();
-    if (!token) {
-      console.warn('No auth token found');
-      return getDefaultState();
-    }
-    
     const response = await fetch(`${API_URL}/dashboard`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
     });
     
     if (response.ok) {
-      return await response.json();
+      const data = await response.json();
+      console.log('User state fetched:', data);
+      return {
+        stress_level: data.stress_level || 'Low',
+        stress_score: data.stress_score || 0.2,
+        spending_risk: data.spending_risk || 'Safe',
+        cognitive_load: data.cognitive_load || 'Normal',
+        savings_runway: data.savings_runway || '3.5 Mo',
+        recent_interventions: data.recent_interventions || []
+      };
     }
     return getDefaultState();
   } catch (error) {
     console.error('Error fetching user state:', error);
     return getDefaultState();
+  }
+}
+
+/**
+ * Analyze order details and determine if user is overspending
+ */
+async function analyzeOrderAndSpending(orderDetails, userState) {
+  try {
+    const spendingAnalysis = {
+      isOverspending: false,
+      riskLevel: 'low',
+      reasons: [],
+      recommendations: []
+    };
+
+    // High-value purchase check
+    if (orderDetails.amount > 5000) {
+      spendingAnalysis.isOverspending = true;
+      spendingAnalysis.riskLevel = 'high';
+      spendingAnalysis.reasons.push(`High-value purchase: ₹${orderDetails.amount}`);
+    }
+
+    // Medium-value purchase with risk factors
+    if (orderDetails.amount > 2000) {
+      spendingAnalysis.riskLevel = 'medium';
+      spendingAnalysis.reasons.push(`Significant purchase amount: ₹${orderDetails.amount}`);
+    }
+
+    // Stress-based spending analysis
+    if (userState.stress_level === 'High') {
+      spendingAnalysis.isOverspending = true;
+      spendingAnalysis.riskLevel = spendingAnalysis.riskLevel === 'high' ? 'high' : 'medium';
+      spendingAnalysis.reasons.push('High stress level detected - increased risk of impulse buying');
+      spendingAnalysis.recommendations.push('Take 10 minutes to relax before deciding');
+    }
+
+    if (userState.stress_level === 'Medium' && orderDetails.amount > 1000) {
+      spendingAnalysis.isOverspending = true;
+      spendingAnalysis.reasons.push('Moderate stress with significant purchase amount');
+    }
+
+    // Spending risk analysis
+    if (userState.spending_risk === 'Critical') {
+      spendingAnalysis.isOverspending = true;
+      spendingAnalysis.riskLevel = 'high';
+      spendingAnalysis.reasons.push('Your spending risk is currently CRITICAL');
+      spendingAnalysis.recommendations.push('Consider avoiding non-essential purchases today');
+    }
+
+    if (userState.spending_risk === 'Warning' && orderDetails.amount > 1500) {
+      spendingAnalysis.isOverspending = true;
+      spendingAnalysis.riskLevel = 'medium';
+      spendingAnalysis.reasons.push('Your spending is at WARNING level');
+    }
+
+    // Category-specific analysis
+    const categoryRisks = {
+      'Electronics': { threshold: 3000, message: 'Electronics can be expensive impulse purchases' },
+      'Fashion': { threshold: 2000, message: 'Fashion items are often impulse purchases' },
+      'Food': { threshold: 500, message: 'Frequent food ordering can add up quickly' }
+    };
+
+    const categoryRisk = categoryRisks[orderDetails.category];
+    if (categoryRisk && orderDetails.amount > categoryRisk.threshold) {
+      spendingAnalysis.reasons.push(categoryRisk.message);
+      if (spendingAnalysis.riskLevel === 'low') {
+        spendingAnalysis.riskLevel = 'medium';
+      }
+    }
+
+    // Generate smart recommendations
+    if (spendingAnalysis.isOverspending || spendingAnalysis.riskLevel !== 'low') {
+      spendingAnalysis.recommendations.push('Wait 24 hours - if you still want it, it\'s likely not impulse');
+      spendingAnalysis.recommendations.push('Check if you have a similar item already');
+      
+      if (orderDetails.amount > 2000) {
+        spendingAnalysis.recommendations.push('Research cheaper alternatives');
+        spendingAnalysis.recommendations.push('Check if this fits your monthly budget');
+      }
+
+      if (userState.savings_runway && userState.savings_runway.includes('Mo')) {
+        const months = parseFloat(userState.savings_runway);
+        if (months < 6) {
+          spendingAnalysis.recommendations.push(`Your savings runway is only ${userState.savings_runway} - prioritize essentials`);
+        }
+      }
+    }
+
+    return spendingAnalysis;
+  } catch (error) {
+    console.error('Error analyzing spending:', error);
+    return { isOverspending: false, riskLevel: 'low', reasons: [], recommendations: [] };
   }
 }
 
@@ -280,23 +353,32 @@ function isGigWorkSite(url) {
 }
 
 /**
- * Log intervention for analytics
+ * Log intervention for analytics - stores in backend
  */
 async function logIntervention(url, reason, severity) {
   try {
-    await fetch(`${API_URL}/intervention/log`, {
+    const payload = {
+      user_id: extensionState.userId,
+      url: url,
+      reason: reason,
+      severity: severity,
+      timestamp: new Date().toISOString()
+    };
+    
+    console.log('Logging intervention:', payload);
+    
+    const response = await fetch(`${API_URL}/intervention/log`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: extensionState.userId,
-        url,
-        reason,
-        severity,
-        timestamp: new Date().toISOString()
-      })
-    }).catch(() => {
-      // Silent fail - endpoint may not exist
+      body: JSON.stringify(payload)
     });
+    
+    if (response.ok) {
+      const result = await response.json();
+      console.log('Intervention logged successfully:', result);
+    } else {
+      console.warn('Failed to log intervention:', response.status);
+    }
   } catch (error) {
     console.error('Error logging intervention:', error);
   }
@@ -322,6 +404,12 @@ async function handleMessage(request, sender, sendResponse) {
         sendResponse({ success: true });
         break;
 
+      case 'analyzePurchase':
+        // Analyze purchase for overspending
+        const purchaseAnalysis = await analyzePurchaseRequest(request.orderDetails, request.url);
+        sendResponse(purchaseAnalysis);
+        break;
+
       case 'recordPurchase':
         await recordTransaction(request.data);
         sendResponse({ success: true });
@@ -339,12 +427,12 @@ async function handleMessage(request, sender, sendResponse) {
         break;
 
       case 'getAuthToken':
-        const token = await getAuthToken();
-        sendResponse({ token: token });
+        // Auth disabled - return null
+        sendResponse({ token: null });
         break;
 
       case 'setAuthToken':
-        await setAuthToken(request.token);
+        // Auth disabled - no-op
         sendResponse({ success: true });
         break;
 
@@ -378,25 +466,72 @@ async function recordTransaction(data) {
 }
 
 /**
- * Record intervention response
+ * Record intervention response - saves user's action to backend
  */
 async function recordInterventionResponse(data) {
   try {
-    await fetch(`${API_URL}/intervention/response`, {
+    const payload = {
+      user_id: extensionState.userId,
+      url: data.url || window.location.href,
+      intervention_action: data.intervention_action || 'unknown',
+      accepted: data.accepted || false,
+      timestamp: data.timestamp || new Date().toISOString()
+    };
+    
+    console.log('Recording intervention response:', payload);
+    
+    const response = await fetch(`${API_URL}/intervention/response`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: extensionState.userId,
-        url: data.url,
-        intervention_action: data.intervention_action || 'unknown',
-        accepted: data.accepted || false,
-        timestamp: data.timestamp || new Date().toISOString()
-      })
-    }).catch((err) => {
-      console.warn('API not available for intervention response:', err);
+      body: JSON.stringify(payload)
     });
+    
+    if (response.ok) {
+      console.log('Intervention response recorded successfully');
+    } else {
+      console.warn('Failed to record intervention response:', response.status);
+    }
   } catch (error) {
     console.error('Error recording intervention response:', error);
+  }
+}
+
+/**
+ * Analyze purchase request and determine if intervention needed
+ */
+async function analyzePurchaseRequest(orderDetails, url) {
+  try {
+    console.log('Analyzing purchase:', orderDetails);
+    
+    // Get user's current financial state
+    const userState = await fetchUserState(extensionState.userId);
+    
+    // Analyze the order and spending patterns
+    const spendingAnalysis = await analyzeOrderAndSpending(orderDetails, userState);
+    
+    // Determine if intervention is needed
+    const shouldIntervene = spendingAnalysis.isOverspending || 
+                           spendingAnalysis.riskLevel === 'high' ||
+                           (userState.stress_level === 'High' && orderDetails.amount > 500);
+
+    const result = {
+      shouldIntervene: shouldIntervene,
+      riskLevel: spendingAnalysis.riskLevel,
+      reasons: spendingAnalysis.reasons,
+      recommendations: spendingAnalysis.recommendations,
+      orderDetails: orderDetails,
+      userState: userState
+    };
+
+    // Log the intervention if needed
+    if (shouldIntervene) {
+      await logIntervention(url, `Potential overspending: ₹${orderDetails.amount}`, spendingAnalysis.riskLevel);
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error analyzing purchase:', error);
+    return { shouldIntervene: false, riskLevel: 'low', reasons: [], recommendations: [] };
   }
 }
 

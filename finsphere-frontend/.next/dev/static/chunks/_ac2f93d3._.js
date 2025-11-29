@@ -3093,6 +3093,8 @@ __turbopack_context__.s([
     ()=>getDashboardStats,
     "getInterventions",
     ()=>getInterventions,
+    "getProfile",
+    ()=>getProfile,
     "healthCheck",
     ()=>healthCheck,
     "ingestBiometrics",
@@ -3103,6 +3105,10 @@ __turbopack_context__.s([
     ()=>ingestTransaction,
     "logIntervention",
     ()=>logIntervention,
+    "login",
+    ()=>login,
+    "register",
+    ()=>register,
     "therapyChat",
     ()=>therapyChat
 ]);
@@ -3110,26 +3116,66 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist
 "use client";
 /**
  * FinSphere Frontend API Client
- * Handles all API calls to the backend
+ * Handles all API calls to the backend with authentication
  */ const API_BASE_URL = typeof __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"] !== "undefined" && __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].env ? __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1" : "http://localhost:8000/api/v1";
-// Helper function for API calls
+// Get auth token from localStorage
+const getAuthToken = ()=>{
+    if ("TURBOPACK compile-time truthy", 1) {
+        return localStorage.getItem('token');
+    }
+    //TURBOPACK unreachable
+    ;
+};
+// Helper function for API calls with authentication
 async function apiCall(endpoint, options = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
+    const token = getAuthToken();
+    const headers = {
+        "Content-Type": "application/json",
+        ...options.headers
+    };
+    // Add auth header if token exists
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
     const response = await fetch(url, {
-        headers: {
-            "Content-Type": "application/json",
-            ...options.headers
-        },
+        headers,
         ...options
     });
     if (!response.ok) {
+        if (response.status === 401) {
+            // Token expired or invalid, redirect to login
+            if ("TURBOPACK compile-time truthy", 1) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+            }
+        }
         const errorData = await response.json().catch(()=>({}));
         throw new Error(errorData.detail || `API Error: ${response.status}`);
     }
     return response.json();
 }
-async function getDashboardStats(userId) {
-    return apiCall(`/dashboard/${userId}`);
+async function login(email, password) {
+    return apiCall('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+            email,
+            password
+        })
+    });
+}
+async function register(userData) {
+    return apiCall('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(userData)
+    });
+}
+async function getProfile() {
+    return apiCall('/auth/profile');
+}
+async function getDashboardStats() {
+    return apiCall('/dashboard');
 }
 async function ingestBiometrics(data) {
     return apiCall("/ingest/biometrics", {
